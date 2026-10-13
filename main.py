@@ -1,4 +1,5 @@
 import math
+import random
 import sys
 
 import pygame
@@ -40,6 +41,16 @@ DIRECCIONES = [ #(q,r)
     (-1, +1),   # SW
     ( 0, +1),   # SE
 ]
+
+# Biomas hexagonos
+BIOMAS = ["llanura", "bosque", "colina", "agua"]
+PESOS_BIOMAS = [0.5, 0.25, 0.15, 0.10]
+COLORES_BIOMA = {
+    "llanura": (100, 160, 80),
+    "bosque":  (40, 90, 50),
+    "colina":  (140, 120, 80),
+    "agua":    (60, 100, 160),
+}
 
 def vecinos(q, r):
     """Devuelve los 6 vecinos de (q, r) en axial."""
@@ -101,6 +112,10 @@ def generar_mapa_rectangular(ancho, alto):
             coords.append((q, r))
     return coords
 
+def oscurecer(color, factor=0.6):
+    """Devuelve un color más oscuro."""
+    return (int(color[0] * factor), int(color[1] * factor), int(color[2] * factor))
+
 # ============================================================
 #  MUNDO ↔ PANTALLA (cámara + zoom)
 # ============================================================
@@ -135,7 +150,7 @@ def zoom_anclado(cam_x, cam_y, zoom_viejo, zoom_nuevo, punto_pantalla):
 mapa = {}   # {(q, r): {"terreno": ...}}
 
 for q, r in generar_mapa_rectangular(MAPA_ANCHO, MAPA_ALTO):
-    mapa[(q, r)] = {"terreno": "llanura"}
+    mapa[(q, r)] = {"bioma": random.choices(BIOMAS, PESOS_BIOMAS)[0]}
 
 # Tamaño del mundo en píxeles (para limitar la cámara)
 if mapa:
@@ -246,8 +261,11 @@ while ejecutando:
             pant_cy < -tamano_pant * 2 or pant_cy > ALTO_VENTANA + tamano_pant * 2):
             continue
 
-        dibujar_hexagono(pantalla, VERDE, pant_cx, pant_cy, tamano_pant)
-        dibujar_hexagono(pantalla, VERDE,  pant_cx, pant_cy, tamano_pant, 2)
+        coordenadas_hexagono = mapa[(q, r)]
+        bioma = coordenadas_hexagono["bioma"]
+        color = COLORES_BIOMA[bioma]
+        dibujar_hexagono(pantalla, color, pant_cx, pant_cy, tamano_pant)
+        dibujar_hexagono(pantalla, oscurecer(color),  pant_cx, pant_cy, tamano_pant, 2)
 
     # 2) Resaltado bajo el ratón
     if hex_bajo_raton is not None:
@@ -260,7 +278,9 @@ while ejecutando:
 
     # 3) HUD
     if hex_bajo_raton is not None:
-        texto = f"Hex: q={hex_bajo_raton[0]} r={hex_bajo_raton[1]}"
+        q, r = hex_bajo_raton
+        bioma = mapa[(q, r)]["bioma"]
+        texto =f"Hex: q={q} r={r} | Bioma: {bioma}"
     else:
         texto = "Hex: (fuera del mapa)"
     texto += f"   |   Cam: ({int(camara_x)}, {int(camara_y)})"
