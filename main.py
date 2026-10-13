@@ -3,6 +3,7 @@ import random
 import sys
 
 import pygame
+from opensimplex import OpenSimplex
 
 # ============================================================
 #  CONFIGURACIÓN
@@ -51,6 +52,9 @@ COLORES_BIOMA = {
     "colina":  (140, 120, 80),
     "agua":    (60, 100, 160),
 }
+
+# Generacion procedural mapa
+SEED = random.randint(0, 99999)
 
 def vecinos(q, r):
     """Devuelve los 6 vecinos de (q, r) en axial."""
@@ -117,6 +121,31 @@ def oscurecer(color, factor=0.6):
     return (int(color[0] * factor), int(color[1] * factor), int(color[2] * factor))
 
 # ============================================================
+# GENERACION PROCEDURAL MAPA
+# ============================================================
+def ruido_fractal (gen, x, y, octavas = 4, frecuencia = 0.1, persistencia = 0.5):
+    total = 0
+    amplitud = 1
+    frecuencia_actual = frecuencia
+    max_valor = 0
+
+    for _ in range(octavas):
+        total += gen.noise2(x * frecuencia_actual, y * frecuencia_actual) * amplitud
+        max_valor += amplitud
+        amplitud *= persistencia
+        frecuencia_actual *= 2
+    return total / max_valor
+
+def bioma_desde(altura, humedad):
+    if altura < -0.2:
+        return "agua"
+    if altura > 0.5:
+        return "colina"
+    if humedad > 0.1:
+        return "bosque"
+    
+    return "llanura"
+# ============================================================
 #  MUNDO ↔ PANTALLA (cámara + zoom)
 # ============================================================
 def mundo_a_pantalla(mx, my, cam_x, cam_y, zoom):
@@ -147,12 +176,19 @@ def zoom_anclado(cam_x, cam_y, zoom_viejo, zoom_nuevo, punto_pantalla):
 # ============================================================
 #  GENERACIÓN DEL MAPA
 # ============================================================
-mapa = {}   # {(q, r): {"terreno": ...}}
+mapa = {}
+gen_altura  = OpenSimplex(seed=SEED)
+gen_humedad = OpenSimplex(seed=SEED + 1)   # seed distinta para que sean independientes
 
 for q, r in generar_mapa_rectangular(MAPA_ANCHO, MAPA_ALTO):
-    mapa[(q, r)] = {"bioma": random.choices(BIOMAS, PESOS_BIOMAS)[0]}
+    x = math.sqrt(3) * (q + r / 2)
+    y = 1.5 * r
 
-# Tamaño del mundo en píxeles (para limitar la cámara)
+    altura  = ruido_fractal(gen_altura,  x, y, frecuencia=0.1)
+    humedad = ruido_fractal(gen_humedad, x, y, frecuencia=0.15)
+
+    bioma = bioma_desde(altura, humedad)
+    mapa[(q, r)] = {"bioma": bioma}
 if mapa:
     xs = []
     ys = []
@@ -169,7 +205,6 @@ else:
     MUNDO_ALTO = ALTO_VENTANA
     OFFSET_MUNDO_X = 0
     OFFSET_MUNDO_Y = 0
-
 # ============================================================
 #  INICIALIZACIÓN
 # ============================================================
@@ -280,7 +315,7 @@ while ejecutando:
     if hex_bajo_raton is not None:
         q, r = hex_bajo_raton
         bioma = mapa[(q, r)]["bioma"]
-        texto =f"Hex: q={q} r={r} | Bioma: {bioma}"
+        texto =f"Hex: q={q} r={r} | Bioma: {bioma} | Seed: {SEED}"
     else:
         texto = "Hex: (fuera del mapa)"
     texto += f"   |   Cam: ({int(camara_x)}, {int(camara_y)})"
