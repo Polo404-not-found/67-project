@@ -4,7 +4,7 @@
 
 ---
 
-## 🎯 Long-Term Vision
+## Long-Term Vision
 
 Project 67 combines the best pillars of classic grand strategy and 4X genres into a unified, modular simulation:
 
@@ -17,7 +17,7 @@ Project 67 combines the best pillars of classic grand strategy and 4X genres int
 
 ---
 
-## 🧭 Development Philosophy
+## Development Philosophy
 
 These ten rules are non-negotiable principles guiding every development decision:
 
@@ -34,7 +34,7 @@ These ten rules are non-negotiable principles guiding every development decision
 
 ---
 
-## 🗺️ Version Roadmap
+## Version Roadmap
 
 | Version | Focus / Milestone | Est. Duration | Target Deliverables / Definition of Done |
 | :--- | :--- | :--- | :--- |
@@ -53,7 +53,7 @@ These ten rules are non-negotiable principles guiding every development decision
 
 ---
 
-## 🛠️ Tech Stack & Requirements
+## Tech Stack & Requirements
 
 - **Language:** Python 3.10+
 - **Primary Engine/Library:** Pygame
@@ -62,7 +62,7 @@ These ten rules are non-negotiable principles guiding every development decision
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Clone the Repository
 ```bash
@@ -87,7 +87,7 @@ python main.py
 
 ---
 
-## 📌 Project Status
+## Project Status
 
 - **Current Version:** `v0.1` (Design & Planning Phase)
 - **Next Milestone:** Finalize `docs/diseño.md` and start implementation of `v0.1` (Technical Hex Prototype).
