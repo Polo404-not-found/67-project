@@ -8,8 +8,8 @@ import pygame
 # ============================================================
 ANCHO_VENTANA, ALTO_VENTANA = 900, 700
 TAMANO_HEX = 40
-FILAS = 25
-COLUMNAS = 30
+MAPA_ANCHO = 30         # ancho del mapa en "columnas" (para la generación)
+MAPA_ALTO  = 25         # alto del mapa en "filas" (para la generación)
 MARGEN_X = 80
 MARGEN_Y = 80
 FPS = 60
@@ -23,92 +23,146 @@ PASO_ZOOM = 1.1
 # Colores
 NEGRO       = (0, 0, 0)
 BLANCO      = (255, 255, 255)
-GRIS        = (90, 90, 90)
 VERDE       = (40, 80, 40)
 AMARILLO    = (255, 220, 0)
 
 # ============================================================
-#  GEOMETRÍA DE HEXÁGONOS (pointy-top, offset)
+#  GEOMETRÍA DE HEXÁGONOS (axial, pointy-top)
 # ============================================================
-ANCHO_HEX = math.sqrt(3) * TAMANO_HEX
-ALTO_HEX  = 2 * TAMANO_HEX
+# En axial, cada hexágono se identifica por (q, r).
+# Los 6 vecinos son siempre los mismos desplazamientos, sin casos especiales.
 
-def hex_a_pixel(fila, columna):
-    """Centro del hexágono en coordenadas del MUNDO."""
-    x = columna * ANCHO_HEX
-    y = fila * (ALTO_HEX * 0.75)
-    if fila % 2 == 1:
-        x += ANCHO_HEX / 2
-    return x + MARGEN_X, y + MARGEN_Y
+DIRECCIONES = [ #(q,r)
+    (+1,  0),   # E
+    (+1, -1),   # NE
+    ( 0, -1),   # NW
+    (-1,  0),   # W
+    (-1, +1),   # SW
+    ( 0, +1),   # SE
+]
+
+def vecinos(q, r):
+    """Devuelve los 6 vecinos de (q, r) en axial."""
+    return [(q + dq, r + dr) for dq, dr in DIRECCIONES]
+
+def distancia(q1, r1, q2, r2):
+    """Distancia en hexágonos entre dos casillas axiales."""
+    return (abs(q1 - q2) + abs(q1 + r1 - q2 - r2) + abs(r1 - r2)) // 2
+
+def axial_a_pixel(q, r, tamano):
+    """Centro del hexágono en coordenadas del MUNDO (sin cámara)."""
+    x = math.sqrt(3) * tamano * (q + r / 2)
+    y = tamano * 1.5 * r
+    return x, y
+
+def pixel_a_axial(mx, my, tamano):
+    """Punto del mundo -> (q, r) axial."""
+    x = mx / tamano
+    y = my / tamano
+
+    q_float = (math.sqrt(3) / 3) * x - (1 / 3) * y
+    r_float = (2 / 3) * y
+
+    # Redondeo hexagonal (usando coordenadas cúbicas)
+    s_float = -q_float - r_float
+    q_int = round(q_float)
+    r_int = round(r_float)
+    s_int = round(s_float)
+
+    dq = abs(q_int - q_float)
+    dr = abs(r_int - r_float)
+    ds = abs(s_int - s_float)
+
+    if dq > dr and dq > ds:
+        q_int = -r_int - s_int
+    elif dr > ds:
+        r_int = -q_int - s_int
+
+    return q_int, r_int
 
 def dibujar_hexagono(superficie, color, cx, cy, tamano, grosor=0):
     """Dibuja hexágono pointy-top centrado en (cx, cy), radio 'tamano'."""
     puntos = []
-    for i in range(6):
-        angulo = math.radians(60 * i - 90)
+    for k in range(6):
+        angulo = math.radians(60 * k - 90)
         x = cx + tamano * math.cos(angulo)
         y = cy + tamano * math.sin(angulo)
         puntos.append((x, y))
     pygame.draw.polygon(superficie, color, puntos, grosor)
 
-def mundo_a_pantalla(mx, my, cam_x, cam_y, z):
-    """Convierte coordenadas del mundo a coordenadas de pantalla."""
-    return (mx - cam_x) * z, (my - cam_y) * z
+def generar_mapa_rectangular(ancho, alto):
+    """Genera las coordenadas axiales (q, r) de un mapa rectangular.
+       Usa offset internamente SOLO para la generación inicial."""
+    coords = []
+    for fila in range(alto):
+        for col in range(ancho):
+            q = col - (fila - (fila & 1)) // 2
+            r = fila
+            coords.append((q, r))
+    return coords
 
-def pantalla_a_mundo(px, py, cam_x, cam_y, z):
-    """Convierte coordenadas de pantalla a coordenadas del mundo."""
-    return px / z + cam_x, py / z + cam_y
+# ============================================================
+#  MUNDO ↔ PANTALLA (cámara + zoom)
+# ============================================================
+def mundo_a_pantalla(mx, my, cam_x, cam_y, zoom):
+    return (mx - cam_x) * zoom, (my - cam_y) * zoom
 
-def pixel_a_hex(px, py, cam_x, cam_y, z):
-    """Coordenadas de pantalla -> (fila, col) del hexágono, o None."""
-    mx, my = pantalla_a_mundo(px, py, cam_x, cam_y, z)
-
-    fila_aprox = int((my - MARGEN_Y) / (ALTO_HEX * 0.75))
-    col_aprox  = int((mx - MARGEN_X) / ANCHO_HEX)
-
-    for fila in range(fila_aprox - 2, fila_aprox + 3):
-        for col in range(col_aprox - 2, col_aprox + 3):
-            if 0 <= fila < FILAS and 0 <= col < COLUMNAS:
-                cx, cy = hex_a_pixel(fila, col)
-                if math.hypot(mx - cx, my - cy) <= TAMANO_HEX:
-                    return fila, col
-    return None
-
-def tamano_mundo():
-    """Ancho y alto totales del mapa en píxeles del mundo."""
-    ancho = MARGEN_X * 2 + COLUMNAS * ANCHO_HEX
-    alto  = MARGEN_Y * 2 + (FILAS - 1) * ALTO_HEX * 0.75 + ALTO_HEX
-    return ancho, alto
+def pantalla_a_mundo(px, py, cam_x, cam_y, zoom):
+    return px / zoom + cam_x, py / zoom + cam_y
 
 # ============================================================
 #  CÁMARA
 # ============================================================
-def limitar_camara(cx, cy, z):
+def limitar_camara(cx, cy, zoom):
     """Evita que la cámara se salga del mundo (teniendo en cuenta el zoom)."""
-    mundo_visible_ancho = ANCHO_VENTANA / z
-    mundo_visible_alto  = ALTO_VENTANA / z
+    mundo_visible_ancho = ANCHO_VENTANA / zoom
+    mundo_visible_alto  = ALTO_VENTANA / zoom
     max_x = max(0, MUNDO_ANCHO - mundo_visible_ancho)
     max_y = max(0, MUNDO_ALTO  - mundo_visible_alto)
     return max(0, min(cx, max_x)), max(0, min(cy, max_y))
 
-def zoom_anclado(cam_x, cam_y, z_viejo, z_nuevo, punto_pantalla):
+def zoom_anclado(cam_x, cam_y, zoom_viejo, zoom_nuevo, punto_pantalla):
     """Recalcula la cámara para que el punto de pantalla no se mueva al cambiar el zoom."""
     mx, my = punto_pantalla
-    mundo_x = mx / z_viejo + cam_x
-    mundo_y = my / z_viejo + cam_y
-    return (mundo_x - mx / z_nuevo,
-            mundo_y - my / z_nuevo)
+    mundo_x = mx / zoom_viejo + cam_x
+    mundo_y = my / zoom_viejo + cam_y
+    return (mundo_x - mx / zoom_nuevo,
+            mundo_y - my / zoom_nuevo)
+
+# ============================================================
+#  GENERACIÓN DEL MAPA
+# ============================================================
+mapa = {}   # {(q, r): {"terreno": ...}}
+
+for q, r in generar_mapa_rectangular(MAPA_ANCHO, MAPA_ALTO):
+    mapa[(q, r)] = {"terreno": "llanura"}
+
+# Tamaño del mundo en píxeles (para limitar la cámara)
+if mapa:
+    xs = []
+    ys = []
+    for (q, r) in mapa:
+        x, y = axial_a_pixel(q, r, TAMANO_HEX)
+        xs.append(x)
+        ys.append(y)
+    MUNDO_ANCHO = max(xs) - min(xs) + MARGEN_X * 2 + TAMANO_HEX * 2
+    MUNDO_ALTO  = max(ys) - min(ys) + MARGEN_Y * 2 + TAMANO_HEX * 2
+    OFFSET_MUNDO_X = -min(xs) + MARGEN_X + TAMANO_HEX
+    OFFSET_MUNDO_Y = -min(ys) + MARGEN_Y + TAMANO_HEX
+else:
+    MUNDO_ANCHO = ANCHO_VENTANA
+    MUNDO_ALTO = ALTO_VENTANA
+    OFFSET_MUNDO_X = 0
+    OFFSET_MUNDO_Y = 0
 
 # ============================================================
 #  INICIALIZACIÓN
 # ============================================================
 pygame.init()
 pantalla = pygame.display.set_mode((ANCHO_VENTANA, ALTO_VENTANA))
-pygame.display.set_caption("Juego de Hexágonos — cámara + zoom")
+pygame.display.set_caption("Juego de Hexágonos — axial")
 reloj = pygame.time.Clock()
 fuente = pygame.font.SysFont("consolas", 16)
-
-MUNDO_ANCHO, MUNDO_ALTO = tamano_mundo()
 
 camara_x, camara_y = 0.0, 0.0
 zoom = 1.0
@@ -128,13 +182,13 @@ while ejecutando:
         elif evento.type == pygame.KEYDOWN:
             if evento.key == pygame.K_ESCAPE:
                 ejecutando = False
-            elif evento.key == pygame.K_r:      # reset de cámara y zoom
+            elif evento.key == pygame.K_r:
                 camara_x, camara_y = 0.0, 0.0
                 zoom = 1.0
 
         elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
             if hex_bajo_raton is not None:
-                print(f"Clic en hex: fila={hex_bajo_raton[0]}, col={hex_bajo_raton[1]}")
+                print(f"Clic en hex: q={hex_bajo_raton[0]}, r={hex_bajo_raton[1]}")
 
         elif evento.type == pygame.MOUSEWHEEL:
             if evento.y > 0:
@@ -164,7 +218,15 @@ while ejecutando:
 
     # --- Ratón -> hex ---
     raton_x, raton_y = pygame.mouse.get_pos()
-    hex_bajo_raton = pixel_a_hex(raton_x, raton_y, camara_x, camara_y, zoom)
+    mundo_x, mundo_y = pantalla_a_mundo(raton_x, raton_y, camara_x, camara_y, zoom)
+
+    # Quitamos el offset del mundo antes de convertir a axial
+    hex_bajo_raton = pixel_a_axial(mundo_x - OFFSET_MUNDO_X,
+                                   mundo_y - OFFSET_MUNDO_Y,
+                                   TAMANO_HEX)
+
+    if hex_bajo_raton not in mapa:
+        hex_bajo_raton = None
 
     # --- Dibujo ---
     pantalla.fill(NEGRO)
@@ -172,28 +234,33 @@ while ejecutando:
     tamano_pant = TAMANO_HEX * zoom
 
     # 1) Hexágonos visibles
-    for fila in range(FILAS):
-        for col in range(COLUMNAS):
-            cx_mundo, cy_mundo = hex_a_pixel(fila, col)
-            cx_pant, cy_pant = mundo_a_pantalla(cx_mundo, cy_mundo, camara_x, camara_y, zoom)
+    for (q, r) in mapa:
+        mundo_cx, mundo_cy = axial_a_pixel(q, r, TAMANO_HEX)
+        mundo_cx += OFFSET_MUNDO_X
+        mundo_cy += OFFSET_MUNDO_Y
 
-            # Culling
-            if (cx_pant < -tamano_pant * 2 or cx_pant > ANCHO_VENTANA + tamano_pant * 2 or
-                cy_pant < -tamano_pant * 2 or cy_pant > ALTO_VENTANA + tamano_pant * 2):
-                continue
+        pant_cx, pant_cy = mundo_a_pantalla(mundo_cx, mundo_cy, camara_x, camara_y, zoom)
 
-            dibujar_hexagono(pantalla, VERDE, cx_pant, cy_pant, tamano_pant)
-            dibujar_hexagono(pantalla, GRIS,  cx_pant, cy_pant, tamano_pant, 2)
+        # Culling
+        if (pant_cx < -tamano_pant * 2 or pant_cx > ANCHO_VENTANA + tamano_pant * 2 or
+            pant_cy < -tamano_pant * 2 or pant_cy > ALTO_VENTANA + tamano_pant * 2):
+            continue
+
+        dibujar_hexagono(pantalla, VERDE, pant_cx, pant_cy, tamano_pant)
+        dibujar_hexagono(pantalla, VERDE,  pant_cx, pant_cy, tamano_pant, 2)
 
     # 2) Resaltado bajo el ratón
     if hex_bajo_raton is not None:
-        cx_mundo, cy_mundo = hex_a_pixel(*hex_bajo_raton)
-        cx_pant, cy_pant = mundo_a_pantalla(cx_mundo, cy_mundo, camara_x, camara_y, zoom)
-        dibujar_hexagono(pantalla, AMARILLO, cx_pant, cy_pant, tamano_pant, 3)
+        q, r = hex_bajo_raton
+        mundo_cx, mundo_cy = axial_a_pixel(q, r, TAMANO_HEX)
+        mundo_cx += OFFSET_MUNDO_X
+        mundo_cy += OFFSET_MUNDO_Y
+        pant_cx, pant_cy = mundo_a_pantalla(mundo_cx, mundo_cy, camara_x, camara_y, zoom)
+        dibujar_hexagono(pantalla, AMARILLO, pant_cx, pant_cy, tamano_pant, 3)
 
     # 3) HUD
     if hex_bajo_raton is not None:
-        texto = f"Hex: fila={hex_bajo_raton[0]} col={hex_bajo_raton[1]}"
+        texto = f"Hex: q={hex_bajo_raton[0]} r={hex_bajo_raton[1]}"
     else:
         texto = "Hex: (fuera del mapa)"
     texto += f"   |   Cam: ({int(camara_x)}, {int(camara_y)})"
